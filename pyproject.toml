@@ -17,4 +17,5 @@ dependencies = [
     "seaborn>=0.13.0",
     "scipy>=1.10.0",
     "pandas>=2.0.0",
+    "sentencepiece>=0.1.99",
 ]

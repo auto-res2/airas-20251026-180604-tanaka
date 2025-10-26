@@ -79,7 +79,7 @@ class PreferenceCollator:
 
 def prepare_datasets(cfg) -> Tuple[AutoTokenizer, torch.utils.data.Dataset, torch.utils.data.Dataset]:
     """Load dataset, create train/val splits, return tokenizer + datasets."""
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.name, cache_dir=".cache/", use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model.name, cache_dir=".cache/", use_fast=False)
 
     raw_ds = load_dataset(cfg.dataset.name, cache_dir=".cache/")
     if "train" in raw_ds and "validation" in raw_ds:

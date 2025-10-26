@@ -75,6 +75,10 @@ class PreferenceCollator:
             max_length=self.max_length,
             return_tensors="pt",
         )
+        # Clamp input_ids to valid vocabulary range to prevent CUDA index errors
+        vocab_size = self.tokenizer.vocab_size
+        toks["input_ids"] = torch.clamp(toks["input_ids"], 0, vocab_size - 1)
+        
         # response mask: 1 for response tokens, 0 for prompt/padding tokens
         mask = torch.zeros_like(toks["input_ids"], dtype=torch.float32)
         for i, p in enumerate(prompts):
@@ -104,6 +108,14 @@ def prepare_datasets(cfg) -> Tuple[AutoTokenizer, torch.utils.data.Dataset, torc
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
+    
+    # Ensure pad_token_id is within valid vocabulary range
+    if tokenizer.pad_token_id >= tokenizer.vocab_size:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        if tokenizer.pad_token_id >= tokenizer.vocab_size:
+            # Fall back to a safe value (0 is typically a valid token)
+            tokenizer.pad_token_id = 0
+            tokenizer.pad_token = tokenizer.convert_ids_to_tokens(0)
 
     raw_ds = load_dataset(cfg.dataset.name, cache_dir=".cache/")
     if "train" in raw_ds and "validation" in raw_ds:

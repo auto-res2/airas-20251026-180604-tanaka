@@ -73,6 +73,15 @@ def _forward(model, part_batch, device):
     input_ids = part_batch["input_ids"].to(device)
     attention_mask = part_batch["attention_mask"].to(device)
     response_mask = part_batch["response_mask"].to(device)[:, 1:]
+    
+    # Safety check: ensure input_ids are within valid range
+    # Get vocab size from model config (handle PEFT-wrapped models)
+    if hasattr(model, 'base_model'):
+        vocab_size = model.base_model.config.vocab_size
+    else:
+        vocab_size = model.config.vocab_size
+    input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
+    
     outputs = model(input_ids=input_ids, attention_mask=attention_mask)
     token_logp = _gather_log_probs(outputs.logits, input_ids)
     # Add small epsilon to avoid division by zero

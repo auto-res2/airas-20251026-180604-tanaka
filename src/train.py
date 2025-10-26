@@ -184,7 +184,7 @@ def run_training(cfg, trial: Optional[optuna.Trial] = None) -> float:
         wandb_run = wandb.init(
             entity=cfg.wandb.entity,
             project=cfg.wandb.project,
-            id=cfg.run.run_id,
+            id=cfg.run_id,
             resume="allow",
             config=OmegaConf.to_container(cfg, resolve=True),
             mode=cfg.wandb.mode,
@@ -302,7 +302,7 @@ def run_training(cfg, trial: Optional[optuna.Trial] = None) -> float:
 # -----------------------------------------------------------------------------
 
 def save_best(model, tokenizer, cfg):
-    save_path = os.path.join(cfg.results_dir, cfg.run.run_id, "best")
+    save_path = os.path.join(cfg.results_dir, cfg.run_id, "best")
     os.makedirs(save_path, exist_ok=True)
     model.save_pretrained(save_path)
     tokenizer.save_pretrained(save_path)
@@ -338,7 +338,7 @@ def optuna_objective(trial: optuna.Trial, base_cfg):
 @hydra.main(config_path="../config", config_name="config")
 def main(cfg):
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-    os.makedirs(os.path.join(cfg.results_dir, cfg.run.run_id), exist_ok=True)
+    os.makedirs(os.path.join(cfg.results_dir, cfg.run_id), exist_ok=True)
 
     # ---------------- Mode tweaks -------------------------------------
     if cfg.mode == "trial":

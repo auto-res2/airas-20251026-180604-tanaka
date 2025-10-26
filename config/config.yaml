@@ -28,7 +28,7 @@ training:
   seed: 42                 # individual seed used when train.py is called directly
 
 # Placeholder for run-specific parameters --------------------------------------
-run: {}
+run_id: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k  # overridden by run configs
 optuna:
   n_trials: 0              # default – overridden by run configs
   direction: minimize

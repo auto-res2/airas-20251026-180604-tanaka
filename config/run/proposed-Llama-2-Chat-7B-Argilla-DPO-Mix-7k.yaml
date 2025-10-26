@@ -1,3 +1,5 @@
+# @package _global_
+
 run_id: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
 method: TD-DPO
 model:

@@ -18,3 +18,7 @@ trainable params: 159,907,840 || all params: 6,898,323,456 || trainable%: 2.3181
 [2025-10-26 21:18:44,570][transformers.utils.generic][WARNING] - `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
 === [TRIAL RUN] PASSED for proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k at Sun Oct 26 09:19:11 PM UTC 2025 ===
 
+=== [UV SYNC] Start at Sun Oct 26 09:20:24 PM UTC 2025 ===
+=== [UV SYNC] Finished successfully at Sun Oct 26 09:20:30 PM UTC 2025 ===
+=== [TRIAL RUN] Start for comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k at Sun Oct 26 09:20:30 PM UTC 2025 ===
+Launching: /home/toma/t-80-8-a/_work/airas-20251026-180604-tanaka/airas-20251026-180604-tanaka/.venv/bin/python3 -u -m src.train run=comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k run_id=comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k-seed42 training.seed=42 results_dir=.research/iteration1 wandb.mode=disabled mode=trial

@@ -1,4 +1,6 @@
 import subprocess
+import sys
+import os
 import hydra
 from omegaconf import OmegaConf
 
@@ -18,6 +20,10 @@ def main(cfg):
 
     # ---------------- Spawn train.py for each seed ---------------------------
     seed_list = cfg.training.get("seed_list", [cfg.training.get("seed", 42)])
+    
+    # Get the project root directory (where main.py's parent is)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
     for seed in seed_list:
         run_id_seed = f"{cfg.run.run_id}-seed{seed}"
         overrides = [
@@ -27,9 +33,9 @@ def main(cfg):
             f"wandb.mode={cfg.wandb.mode}",
             f"mode={cfg.mode}",
         ]
-        cmd = ["python", "-u", "-m", "src.train"] + overrides
+        cmd = [sys.executable, "-u", "-m", "src.train"] + overrides
         print("Launching:", " ".join(cmd))
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, cwd=project_root)
 
 if __name__ == "__main__":
     main()

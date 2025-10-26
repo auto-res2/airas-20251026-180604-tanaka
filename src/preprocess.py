@@ -47,7 +47,9 @@ class PreferenceCollator:
     def __init__(self, tokenizer: AutoTokenizer, max_length: int = 2048):
         self.tokenizer = tokenizer
         self.max_length = max_length
-        self.eos = tokenizer.eos_token or "</s>"
+        eos_token = tokenizer.eos_token or "</s>"
+        # Ensure eos is a string (handle case where eos_token is a list)
+        self.eos = eos_token[0] if isinstance(eos_token, list) else eos_token
 
     def _build(self, prompts: List[str], responses: List[str]):
         joined = [p + self.eos + r + self.eos for p, r in zip(prompts, responses)]

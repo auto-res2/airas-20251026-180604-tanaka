@@ -2,5 +2,13 @@
   "research_topic": "new optimization methods for LLMs",
   "queries": [
     "LLM optimization algorithms"
+  ],
+  "research_study_list": [
+    {
+      "title": "Discovering Preference Optimization Algorithms with and for Large Language Models"
+    },
+    {
+      "title": "Large Language Models as Optimizers"
+    }
   ]
 }

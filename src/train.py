@@ -344,7 +344,9 @@ def main(cfg):
     if cfg.mode == "trial":
         cfg.wandb.mode = "disabled"
         cfg.optuna.n_trials = 0
+        OmegaConf.set_struct(cfg, False)
         cfg.training.epochs = 1
+        OmegaConf.set_struct(cfg, True)
     elif cfg.mode == "full":
         cfg.wandb.mode = "online"
     else:

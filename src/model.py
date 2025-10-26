@@ -3,7 +3,7 @@ from typing import Tuple
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 __all__ = ["load_models", "compute_logps"]
 
@@ -32,6 +32,10 @@ def load_models(cfg, tokenizer: AutoTokenizer) -> Tuple[torch.nn.Module, torch.n
         device_map=device,
     )
 
+    # Prepare model for k-bit training before applying PEFT
+    if cfg.model.get("load_in_4bit", False):
+        model = prepare_model_for_kbit_training(model)
+
     model.gradient_checkpointing_enable()
 
     if cfg.model.get("peft"):
@@ -41,8 +45,13 @@ def load_models(cfg, tokenizer: AutoTokenizer) -> Tuple[torch.nn.Module, torch.n
             lora_dropout=cfg.model.peft.lora_dropout,
             bias="none",
             task_type="CAUSAL_LM",
+            target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         model = get_peft_model(model, lora_cfg)
+        model.print_trainable_parameters()
+        
+        # Ensure model is in training mode
+        model.train()
 
     # Frozen reference -------------------------------------------------
     ref_model = AutoModelForCausalLM.from_pretrained(

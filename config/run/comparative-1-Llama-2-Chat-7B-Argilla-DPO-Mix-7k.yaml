@@ -1,0 +1,57 @@
+run_id: comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+method: DPO
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  quantization: qlora-4bit
+  load_in_4bit: true
+  torch_dtype: bfloat16
+  peft:
+    lora_r: 64
+    lora_alpha: 16
+    lora_dropout: 0.05
+dataset:
+  name: argilla/dpo-mix-7k
+  split:
+    train: 0.9
+    val: 0.1
+  preprocessing:
+    max_length: 2048
+training:
+  epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 32
+  global_batch_size: 128
+  learning_rate: 1e-5
+  weight_decay: 0.01
+  optimizer: adamw
+  lr_scheduler_type: cosine
+  warmup_steps: 100
+  evaluation_strategy: steps
+  eval_steps: 250
+  save_total_limit: 1
+  save_strategy: best
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 25
+  seed_list: [42, 43, 44]
+  report_to: wandb
+loss:
+  name: dpo_loss
+  beta: ${opt.beta}
+  kl_reference_model: true
+compute:
+  gpus: 4
+  gpu_type: a100-80gb
+  strategy: fsdp
+optuna:
+  n_trials: 20
+  direction: minimize
+  objective_metric: val_pairwise_accuracy
+  search_space:
+    beta:
+      type: categorical
+      choices: [0.01, 0.05, 0.5, 2.5]
+    learning_rate:
+      type: loguniform
+      low: 5e-6
+      high: 5e-5

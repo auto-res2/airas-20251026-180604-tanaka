@@ -1,0 +1,35 @@
+defaults:
+  - _self_
+  - run: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k  # default; overridden via CLI
+
+# -----------------------------------------------------------------------------
+# Global flags -----------------------------------------------------------------
+# -----------------------------------------------------------------------------
+mode: full                 # 'trial' / 'full' – override via CLI
+results_dir: ./results     # base directory for checkpoints & figures
+
+# -----------------------------------------------------------------------------
+# WandB configuration ----------------------------------------------------------
+# -----------------------------------------------------------------------------
+wandb:
+  entity: gengaru617-personal
+  project: 251023-test
+  mode: online             # auto-overridden when mode == trial
+
+# -----------------------------------------------------------------------------
+# Safe defaults to avoid interpolation errors ----------------------------------
+# -----------------------------------------------------------------------------
+opt:
+  beta: 0.05               # numeric defaults – Optuna/CLI may override
+  tau: 1.0
+
+training:
+  seed_list: [42]
+  seed: 42                 # individual seed used when train.py is called directly
+
+# Placeholder for run-specific parameters --------------------------------------
+run: {}
+optuna:
+  n_trials: 0              # default – overridden by run configs
+  direction: minimize
+  search_space: {}         # populated in run configs

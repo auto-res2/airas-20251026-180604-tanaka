@@ -63,6 +63,9 @@ def _gather_log_probs(logits: torch.Tensor, input_ids: torch.Tensor):
     logp = torch.nn.functional.log_softmax(logits, dim=-1)
     logp = logp[:, :-1, :]
     target = input_ids[:, 1:]
+    # Clamp target indices to valid range [0, vocab_size-1] to avoid index errors
+    vocab_size = logp.size(-1)
+    target = torch.clamp(target, 0, vocab_size - 1)
     return torch.gather(logp, 2, target.unsqueeze(-1)).squeeze(-1)
 
 
@@ -72,7 +75,9 @@ def _forward(model, part_batch, device):
     response_mask = part_batch["response_mask"].to(device)[:, 1:]
     outputs = model(input_ids=input_ids, attention_mask=attention_mask)
     token_logp = _gather_log_probs(outputs.logits, input_ids)
-    seq_logp = (token_logp * response_mask).sum(dim=1) / response_mask.sum(dim=1)
+    # Add small epsilon to avoid division by zero
+    response_sum = response_mask.sum(dim=1).clamp(min=1e-8)
+    seq_logp = (token_logp * response_mask).sum(dim=1) / response_sum
     return seq_logp
 
 

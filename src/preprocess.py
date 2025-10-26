@@ -75,12 +75,14 @@ class PreferenceCollator:
             max_length=self.max_length,
             return_tensors="pt",
         )
-        # response mask: 1 for response tokens, 0 for prompt tokens -----
-        mask = torch.zeros_like(toks["input_ids"], dtype=torch.bool)
+        # response mask: 1 for response tokens, 0 for prompt/padding tokens
+        mask = torch.zeros_like(toks["input_ids"], dtype=torch.float32)
         for i, p in enumerate(prompts):
-            prompt_len = len(self.tokenizer(p + self.eos)["input_ids"])
+            prompt_len = len(self.tokenizer(p + self.eos, add_special_tokens=False)["input_ids"])
             seq_len = toks["attention_mask"][i].sum().item()
-            mask[i, prompt_len:seq_len] = 1
+            # Only mask the response portion, excluding padding
+            if prompt_len < seq_len:
+                mask[i, prompt_len:seq_len] = 1
         toks["response_mask"] = mask
         return toks
 
@@ -97,6 +99,11 @@ class PreferenceCollator:
 def prepare_datasets(cfg) -> Tuple[AutoTokenizer, torch.utils.data.Dataset, torch.utils.data.Dataset]:
     """Load dataset, create train/val splits, return tokenizer + datasets."""
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.name, cache_dir=".cache/", use_fast=False)
+    
+    # Set padding token if not set (required for Llama models)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     raw_ds = load_dataset(cfg.dataset.name, cache_dir=".cache/")
     if "train" in raw_ds and "validation" in raw_ds:

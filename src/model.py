@@ -21,12 +21,15 @@ def load_models(cfg, tokenizer: AutoTokenizer) -> Tuple[torch.nn.Module, torch.n
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
 
+    # Use single device to avoid tensor placement issues
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model.name,
         cache_dir=".cache/",
         torch_dtype=getattr(torch, cfg.model.torch_dtype),
         quantization_config=bnb_cfg,
-        device_map="auto",
+        device_map=device,
     )
 
     model.gradient_checkpointing_enable()
@@ -47,7 +50,7 @@ def load_models(cfg, tokenizer: AutoTokenizer) -> Tuple[torch.nn.Module, torch.n
         cache_dir=".cache/",
         torch_dtype=getattr(torch, cfg.model.torch_dtype),
         quantization_config=bnb_cfg,
-        device_map="auto",
+        device_map=device,
     )
     ref_model.eval()
     for p in ref_model.parameters():

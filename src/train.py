@@ -197,9 +197,8 @@ def run_training(cfg, trial: Optional[optuna.Trial] = None) -> float:
     # ------------------------------------------------------------------
     # Device placement --------------------------------------------------
     # ------------------------------------------------------------------
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    ref_model.to(device)
+    # Models are already on device via device_map in load_models()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     ref_model.eval()
 
     # ------------------------------------------------------------------

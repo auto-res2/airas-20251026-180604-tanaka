@@ -82,3 +82,23 @@ trainable params: 159,907,840 || all params: 6,898,323,456 || trainable%: 2.3181
 [2025-10-26 22:02:45,912][transformers.utils.generic][WARNING] - `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
 === [TRIAL RUN] PASSED for comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k at Sun Oct 26 10:03:08 PM UTC 2025 ===
 
+=== [UV SYNC] Start at Sun Oct 26 10:05:12 PM UTC 2025 ===
+=== [UV SYNC] Finished successfully at Sun Oct 26 10:05:18 PM UTC 2025 ===
+=== [TRIAL RUN] Start for proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k at Sun Oct 26 10:05:18 PM UTC 2025 ===
+Launching: /home/toma/t-80-8-b-03/_work/airas-20251026-180604-tanaka/airas-20251026-180604-tanaka/.venv/bin/python3 -u -m src.train run=proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k run_id=proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k-seed42 training.seed=42 results_dir=.research/iteration1 wandb.mode=disabled mode=trial
+[2025-10-26 22:06:00,537][transformers.models.llama.tokenization_llama][WARNING] - You are using the default legacy behaviour of the <class 'transformers.models.llama.tokenization_llama.LlamaTokenizer'>. This is expected, and simply means that the `legacy` (previous) behavior will be used so nothing changes for you. If you want to use the new behaviour, set `legacy=False`. This should only be set if you understand what it means, and thoroughly read the reason why this was added as explained in https://github.com/huggingface/transformers/pull/24565 - if you loaded a llama tokenizer from a GGUF file you can ignore this message
+[2025-10-26 22:06:05,587][transformers.configuration_utils][WARNING] - `torch_dtype` is deprecated! Use `dtype` instead!
+trainable params: 159,907,840 || all params: 6,898,323,456 || trainable%: 2.3181
+[2025-10-26 22:08:08,574][transformers.utils.generic][WARNING] - `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+Launching: /home/toma/t-80-8-b-03/_work/airas-20251026-180604-tanaka/airas-20251026-180604-tanaka/.venv/bin/python3 -u -m src.train run=proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k run_id=proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k-seed43 training.seed=43 results_dir=.research/iteration1 wandb.mode=disabled mode=trial
+[2025-10-26 22:08:47,861][transformers.models.llama.tokenization_llama][WARNING] - You are using the default legacy behaviour of the <class 'transformers.models.llama.tokenization_llama.LlamaTokenizer'>. This is expected, and simply means that the `legacy` (previous) behavior will be used so nothing changes for you. If you want to use the new behaviour, set `legacy=False`. This should only be set if you understand what it means, and thoroughly read the reason why this was added as explained in https://github.com/huggingface/transformers/pull/24565 - if you loaded a llama tokenizer from a GGUF file you can ignore this message
+[2025-10-26 22:08:52,482][transformers.configuration_utils][WARNING] - `torch_dtype` is deprecated! Use `dtype` instead!
+trainable params: 159,907,840 || all params: 6,898,323,456 || trainable%: 2.3181
+[2025-10-26 22:10:47,076][transformers.utils.generic][WARNING] - `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+Launching: /home/toma/t-80-8-b-03/_work/airas-20251026-180604-tanaka/airas-20251026-180604-tanaka/.venv/bin/python3 -u -m src.train run=proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k run_id=proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k-seed44 training.seed=44 results_dir=.research/iteration1 wandb.mode=disabled mode=trial
+[2025-10-26 22:11:20,271][transformers.models.llama.tokenization_llama][WARNING] - You are using the default legacy behaviour of the <class 'transformers.models.llama.tokenization_llama.LlamaTokenizer'>. This is expected, and simply means that the `legacy` (previous) behavior will be used so nothing changes for you. If you want to use the new behaviour, set `legacy=False`. This should only be set if you understand what it means, and thoroughly read the reason why this was added as explained in https://github.com/huggingface/transformers/pull/24565 - if you loaded a llama tokenizer from a GGUF file you can ignore this message
+[2025-10-26 22:11:24,833][transformers.configuration_utils][WARNING] - `torch_dtype` is deprecated! Use `dtype` instead!
+trainable params: 159,907,840 || all params: 6,898,323,456 || trainable%: 2.3181
+[2025-10-26 22:13:26,730][transformers.utils.generic][WARNING] - `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+=== [TRIAL RUN] PASSED for proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k at Sun Oct 26 10:13:50 PM UTC 2025 ===
+

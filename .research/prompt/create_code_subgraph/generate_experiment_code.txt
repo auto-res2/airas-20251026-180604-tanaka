@@ -1,0 +1,358 @@
+
+LLM Name: o3-2025-04-16
+Input:
+You are a cutting-edge AI researcher generating complete, executable code for research paper experiments with Hydra configuration management.
+
+Based on the research method in # Current Research Method and experimental design in # Experimental Design, generate production-ready experiment code that integrates with Hydra for configuration management.
+
+# Instructions: Complete Experiment Code Generation
+
+## Core Requirements
+- COMPLETE IMPLEMENTATION: Every component must be fully functional, production-ready, publication-worthy code. No "omitted for brevity", no "simplified version", no TODO, PLACEHOLDER, pass, or ...
+- PYTORCH EXCLUSIVELY: Use PyTorch as the deep learning framework
+- HYDRA INTEGRATION: Use Hydra to manage all experiment configurations from `config/run/*.yaml` files. Use `config_path="../config"` in all @hydra.main decorators
+- COMPLETE DATA PIPELINE: Full data loading and preprocessing implementation. Use `.cache/` as the cache directory for all datasets and models (e.g., for HuggingFace, set `cache_dir=".cache/"`)
+- WANDB REQUIRED: WandB is mandatory for metrics logging (except trial_mode validation)
+
+## Hydra Configuration Structure
+Each run config file (`config/run/{run_id}.yaml`) contains:
+- run_id: Unique identifier for this run
+- method: The method name (baseline, proposed, ablation, etc.)
+- model: Model-specific parameters (name, architecture details, hyperparameters)
+- dataset: Dataset-specific parameters (name, preprocessing settings, split ratios)
+- training: Training hyperparameters (learning rate, batch size, epochs, optimizer settings, validation split)
+- optuna: Hyperparameter search space definition for Optuna optimization
+
+## Command Line Interface
+The generated code must support the following CLI:
+
+**Training (main.py):**
+```bash
+# Full experiment with WandB logging
+uv run python -u -m src.main run={run_id} results_dir={path} mode=full
+
+# Trial mode (validation only, WandB disabled)
+uv run python -u -m src.main run={run_id} results_dir={path} mode=trial
+```
+- `run`: Experiment run_id (matching a run_id from config/run/*.yaml)
+- `results_dir`: Output directory (passed from GitHub Actions workflow)
+- `mode`: Execution mode (required parameter)
+  * `mode=trial`: Lightweight execution for validation (epochs=1, batches limited to 1-2, wandb.mode=disabled, optuna.n_trials=0)
+  * `mode=full`: Full experiment execution (wandb.mode=online, full epochs, full Optuna trials)
+  * **Code must automatically configure based on mode (e.g., `if cfg.mode == "trial": cfg.wandb.mode = "disabled"; cfg.optuna.n_trials = 0` elif `cfg.mode == "full": cfg.wandb.mode = "online"`)**
+
+**Evaluation (evaluate.py, independent execution):**
+```bash
+uv run python -m src.evaluate results_dir={path} run_ids='["run-1", "run-2", ...]'
+```
+- `results_dir`: Directory containing experiment metadata and where outputs will be saved
+- `run_ids`: JSON string list of run IDs to evaluate (e.g., '["run-1-proposed-bert-glue", "run-2-baseline-bert-glue"]')
+- Executed as a separate workflow after all training runs complete
+- **NOT called from main.py**
+
+## Script Structure (ExperimentCode format)
+Generate complete code for these files ONLY. Do not create any additional files beyond this structure:
+
+**`src/train.py`**: Single experiment run executor
+- Uses Hydra config to load all parameters
+- Called as subprocess by main.py
+- Responsibilities:
+  * Train model with given configuration
+  * Initialize WandB: `wandb.init(entity=cfg.wandb.entity, project=cfg.wandb.project, id=cfg.run.run_id, config=OmegaConf.to_container(cfg, resolve=True), resume="allow")`
+  * Skip `wandb.init()` if `cfg.wandb.mode == "disabled"` (trial_mode)
+  * **Optuna Integration**: If using Optuna for hyperparameter search, DO NOT log intermediate trial results to WandB - only train once with the best hyperparameters after optimization completes and log that final run
+  * **Log ALL metrics to WandB comprehensively**:
+    - Use `wandb.log()` at each training step/batch/epoch with ALL relevant metrics
+    - Log as frequently as possible (per-batch or per-epoch) to capture training dynamics
+    - Use CONSISTENT metric names across train.py and evaluate.py (e.g., if train.py logs "train_acc", evaluate.py MUST use run.history(keys=["train_acc",...]))
+  * **Save final/best metrics to WandB summary**:
+    - Use `wandb.summary["key"] = value` for final results
+  * Print WandB run URL to stdout
+- **NO results.json, no stdout JSON output, no figure generation**
+
+**`src/evaluate.py`**: Independent evaluation and visualization script
+- **Execution**: Run independently via `uv run python -m src.evaluate results_dir={path} run_ids='["run-1", "run-2"]'`
+- **NOT called from main.py** - executes as separate workflow after all training completes
+- **Responsibilities**:
+  * Parse command line arguments:
+    - `results_dir`: Output directory path
+    - `run_ids`: JSON string list of run IDs (parse with `json.loads(args.run_ids)`)
+  * Load WandB config from `config/config.yaml` (in repository root)
+  * **Retrieve comprehensive experimental data from WandB API** for specified run_ids:
+    ```python
+    import json
+    api = wandb.Api()
+    run_ids = json.loads(args.run_ids)  # Parse JSON string to list
+    for run_id in run_ids:
+        run = api.run(f"{entity}/{project}/{run_id}")
+        history = run.history()  # pandas DataFrame with ALL time-series metrics (train_loss, val_acc, etc.)
+        summary = run.summary._json_dict  # Final/best metrics (best_val_acc, final_test_acc, etc.)
+        config = dict(run.config)  # Run configuration (hyperparameters, model settings, etc.)
+    ```
+  * **STEP 1: Per-Run Processing** (for each run_id):
+    - Export **comprehensive** run-specific metrics to: `{results_dir}/{run_id}/metrics.json`
+    - Generate run-specific figures (learning curves, confusion matrices) to: `{results_dir}/{run_id}/`
+    - Each run should have its own subdirectory with its metrics and figures
+  * **STEP 2: Aggregated Analysis** (after processing all runs):
+    - Export aggregated metrics to: `{results_dir}/comparison/aggregated_metrics.json`
+    - Compute secondary/derived metrics (e.g., improvement rate: (proposed - baseline) / baseline)
+    - Generate comparison figures to: `{results_dir}/comparison/`:
+      * Cross-run comparison charts (bar charts, box plots)
+      * Performance metrics tables
+      * Statistical significance tests
+  * **Figure Generation Guidelines**:
+    - Use matplotlib or seaborn with proper legends, annotations, tight_layout
+    - For line graphs: annotate significant values (final/best values)
+    - For bar graphs: annotate values above each bar
+    - Use GLOBALLY UNIQUE image filenames to prevent collisions across different runs and directories**:
+      * Per-run figures: `{run_id}_{figure_topic}[_<condition>][_pairN].pdf` (e.g., `run-1-proposed-bert-glue_learning_curve.pdf`)
+      * Comparison figures: `comparison_{figure_topic}[_<condition>][_pairN].pdf` (e.g., `comparison_accuracy_bar_chart.pdf`)
+  * Print all generated file paths to stdout (both per-run and comparison)
+
+**`src/preprocess.py`**: Complete preprocessing pipeline implementation for the specified datasets
+
+**`src/model.py`**: Complete model architecture implementations for all methods (proposed and comparative methods)
+
+**`src/main.py`**: Main orchestrator
+- Receives run_id via Hydra, launches train.py as subprocess, manages logs
+- **DOES NOT call evaluate.py** (evaluate.py runs independently in separate workflow)
+- Use `@hydra.main(config_path="../config")` since execution is from repository root
+- **Mode handling**: Automatically configure based on `cfg.mode`:
+  * When `cfg.mode == "trial"`: Set `cfg.wandb.mode = "disabled"`, `cfg.optuna.n_trials = 0`, epochs=1, etc.
+  * When `cfg.mode == "full"`: Set `cfg.wandb.mode = "online"` and use full configuration
+
+**`config/config.yaml`**: Main Hydra configuration file
+- MUST include WandB configuration:
+  ```yaml
+  wandb:
+    entity: gengaru617-personal
+    project: 251023-test
+    mode: online  # Automatically set to "disabled" in trial_mode
+  ```
+- `WANDB_API_KEY` environment variable is automatically available for authentication
+
+**`pyproject.toml`**: Complete project dependencies
+- MUST include: `hydra-core`, `wandb` (required)
+- Include as needed: `optuna`, `torch`, `transformers`, `datasets`, etc.
+
+
+## Key Implementation Focus Areas
+1. **Hydra-Driven Configuration**: All parameters loaded from run configs dynamically
+2. **Algorithm Core**: Full implementation of the proposed method with proper abstraction
+3. **Mode-Based Behavior**: Code must automatically configure based on `cfg.mode` ("trial" vs "full")
+   - `mode=trial`: Set `cfg.wandb.mode="disabled"`, `cfg.optuna.n_trials=0`, epochs=1, limited batches
+   - `mode=full`: Set `cfg.wandb.mode="online"`, use full configuration
+4. **Run Execution**: main.py executes a single run_id passed via CLI (GitHub Actions dispatches multiple runs separately)
+5. **WandB Integration**: All metrics logged to WandB; train.py does NOT output JSON to stdout or save results.json
+6. **Independent Evaluation**: evaluate.py runs separately, fetches data from WandB API, generates all figures
+
+
+
+## Code Validation Feedback
+
+
+
+
+# Experimental Environment
+NVIDIA A100×8
+VRAM：80GB×8
+RAM：2048 GB
+
+# Current Research Method
+{
+    "Open Problems": "In DPO-style preference optimization the single hyper-parameter β simultaneously (1) scales the preference loss curvature and (2) weights the KL-divergence regulariser.  This coupling makes training unstable: small β under-regularises but also flattens the preference loss, while large β over-regularises and explodes the preference-loss gradient.  Reported failures of DiscoPOP/DPO for β≤0.01 or β≥2.5 stem directly from this entanglement.",
+    "Methods": "Temperature-Decoupled Direct Preference Optimisation (TD-DPO)\n1. Keep the KL term exactly as in DPO, still weighted by β.\n2. Introduce an independent temperature τ that ONLY rescales the preference margin Δ = log p_θ(y⁺|x) − log p_θ(y⁻|x).\n   TD-DPO loss per pair:\n       L = − log σ( Δ / τ )  +  β · KL(p_θ || p₀)\n   where σ is the sigmoid.  Setting τ<1 sharpens the preference signal without forcing a smaller KL, while τ>1 smooths gradients when β must be large for safety.\nTheoretically, this separates information-theoretic regularisation (β) from optimisation stability (τ), giving one extra scalar degree of freedom with negligible implementation cost.",
+    "Experimental Setup": "Model: open-source 7B Llama-2-chat (HF transformers).\nData: Argilla DPO-Mix-7k (same as DiscoPOP paper) – train/valid split 90/10.\nBaselines: (a) original DPO (single β), (b) DiscoPOP (best reported β), (c) proposed TD-DPO.\nHyper-grid: β ∈ {0.01,0.05,0.5,2.5}; τ ∈ {0.5,1.0,2.0} (TD-DPO only).\nOptimiser & hardware: AdamW, lr 1e-5, 4 × A100 80G, 3 epochs.\nEvaluation: MT-Bench score (GPT-4 judge) and validation pairwise accuracy.\nReport mean score over three seeds.",
+    "Experimental Code": "import torch, torch.nn.functional as F\n\ndef td_dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta=0.05, tau=1.0):\n    \"\"\"TD-DPO pairwise loss.\n    logp_* : tensors of shape (batch,)\n    beta   : KL weight (as in DPO)\n    tau    : new temperature for preference margin\n    returns scalar loss\"\"\"\n    # preference term\n    delta = (logp_pos - logp_neg) / tau        # <-- only change w.r.t. DPO\n    pref_loss = -F.logsigmoid(delta).mean()\n    # KL term (same as DPO)\n    kl = 0.5*((logp_pos - logp_pos_ref)**2 + (logp_neg - logp_neg_ref)**2).mean()\n    return pref_loss + beta * kl\n\n# during training\n# logits_pos, logits_neg come from current model\n# logits_pos_ref, logits_neg_ref from frozen reference model\nloss = td_dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta=beta, tau=tau)\nloss.backward()",
+    "Expected Result": "• When β is very small (0.01) TD-DPO with τ=0.5 regains strong gradients and matches performance of best-tuned DPO at β=0.05.\n• When β is large (2.5) TD-DPO with τ=2.0 avoids divergence; MT-Bench improves by ≈+1.5 points over baseline DiscoPOP.\n• For mid-range β (0.05) the default τ=1 keeps parity with DPO (<0.1 score difference).\nOverall, cross-β variance of MT-Bench scores is reduced by ~40 %, showing robustness.",
+    "Expected Conclusion": "A single extra scalar (τ) disentangles optimisation curvature from regularisation strength, eliminating observed instabilities of DPO/DiscoPOP with almost no code change.  Because the modification is orthogonal, existing hyper-parameter β sweeps remain valid, while τ offers a lightweight knob for further gains.  This demonstrates how a minimal but principled adjustment to the objective function yields measurable, practical improvements for LLM preference optimisation."
+}
+
+# Experimental Design
+- Summary: Purpose: verify that Temperature-Decoupled Direct Preference Optimisation (TD-DPO) makes preference-finetuning of large language models more stable and robust than standard Direct Preference Optimisation (DPO).
+
+Components & workflow:
+1. Base model: load HuggingFace “Llama-2-Chat-7B” in 4-bit QLoRA format so it fits comfortably on a single A100; keep a frozen copy as reference policy.
+2. Data: use the public Argilla DPO-Mix-7k pair-preference corpus (≈6.3 k train / 0.7 k val). Each sample provides (x, y⁺, y⁻).
+3. Training loops (three random seeds):
+   a. Baseline run with standard DPO loss for four β values {0.01,0.05,0.5,2.5}.
+   b. Proposed TD-DPO run on the same β grid while sweeping the additional temperature τ ∈ {0.5,1.0,2.0}.
+   c. optimiser: AdamW, lr 1e-5, weight-decay 0.01, batch 128, 3 epochs; gradient-accumulation and FSDP across 4×A100 (≤60 GB GPU-RAM used).
+4. During training compute validation pairwise accuracy every 250 steps; keep best checkpoint by this metric.
+5. Post-training evaluation: generate answers on MT-Bench v1.1, score with GPT-4 auto-judge, report mean of three seeds.
+6. Analysis: compare MT-Bench and validation accuracy across β; measure variance reduction and highlight cases β=0.01 and β=2.5 where TD-DPO is expected to outperform.
+
+The experiment therefore demonstrates that decoupling curvature (τ) from regularisation (β) yields higher scores and lower sensitivity with negligible extra cost.
+- Evaluation metrics: ['MT-Bench score', 'Pairwise accuracy']
+
+# Experiment Runs
+
+- Run ID: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+  Method: proposed
+  Model: Llama-2-Chat-7B
+  Dataset: Argilla DPO-Mix-7k
+  Config File: config/run/proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k.yaml
+  
+  Config Content:
+  ```yaml
+  run_id: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+method: TD-DPO
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  quantization: qlora-4bit
+  load_in_4bit: true
+  torch_dtype: bfloat16
+  peft:
+    lora_r: 64
+    lora_alpha: 16
+    lora_dropout: 0.05
+dataset:
+  name: argilla/dpo-mix-7k
+  split:
+    train: 0.9
+    val: 0.1
+  preprocessing:
+    max_length: 2048
+training:
+  epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 32
+  global_batch_size: 128
+  learning_rate: 1e-5
+  weight_decay: 0.01
+  optimizer: adamw
+  lr_scheduler_type: cosine
+  warmup_steps: 100
+  evaluation_strategy: steps
+  eval_steps: 250
+  save_total_limit: 1
+  save_strategy: best
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 25
+  seed_list: [42, 43, 44]
+  report_to: wandb
+loss:
+  name: td_dpo_loss
+  beta: ${opt.beta}
+  tau: ${opt.tau}
+  kl_reference_model: true
+compute:
+  gpus: 4
+  gpu_type: a100-80gb
+  strategy: fsdp
+optuna:
+  n_trials: 36
+  direction: minimize
+  objective_metric: val_pairwise_accuracy
+  search_space:
+    beta:
+      type: categorical
+      choices: [0.01, 0.05, 0.5, 2.5]
+    tau:
+      type: categorical
+      choices: [0.5, 1.0, 2.0]
+    learning_rate:
+      type: loguniform
+      low: 5e-6
+      high: 5e-5
+
+  ```
+  
+
+- Run ID: comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+  Method: comparative-1
+  Model: Llama-2-Chat-7B
+  Dataset: Argilla DPO-Mix-7k
+  Config File: config/run/comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k.yaml
+  
+  Config Content:
+  ```yaml
+  run_id: comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+method: DPO
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  quantization: qlora-4bit
+  load_in_4bit: true
+  torch_dtype: bfloat16
+  peft:
+    lora_r: 64
+    lora_alpha: 16
+    lora_dropout: 0.05
+dataset:
+  name: argilla/dpo-mix-7k
+  split:
+    train: 0.9
+    val: 0.1
+  preprocessing:
+    max_length: 2048
+training:
+  epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 32
+  global_batch_size: 128
+  learning_rate: 1e-5
+  weight_decay: 0.01
+  optimizer: adamw
+  lr_scheduler_type: cosine
+  warmup_steps: 100
+  evaluation_strategy: steps
+  eval_steps: 250
+  save_total_limit: 1
+  save_strategy: best
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 25
+  seed_list: [42, 43, 44]
+  report_to: wandb
+loss:
+  name: dpo_loss
+  beta: ${opt.beta}
+  kl_reference_model: true
+compute:
+  gpus: 4
+  gpu_type: a100-80gb
+  strategy: fsdp
+optuna:
+  n_trials: 20
+  direction: minimize
+  objective_metric: val_pairwise_accuracy
+  search_space:
+    beta:
+      type: categorical
+      choices: [0.01, 0.05, 0.5, 2.5]
+    learning_rate:
+      type: loguniform
+      low: 5e-6
+      high: 5e-5
+
+  ```
+  
+
+
+# External Resources (Use these for implementation)
+
+**HuggingFace Models:**
+
+- ID: lmsys/sglang-EAGLE-llama2-chat-7B
+
+
+
+**HuggingFace Datasets:**
+
+- ID: argilla/dpo-mix-7k
+
+
+
+
+Generate complete, production-ready experiment code that integrates with Hydra configuration system.
+Output:
+{
+    "train_py": "import os\nimport math\nimport json\nimport random\nimport hydra\nimport torch\nimport wandb\nimport optuna\nfrom omegaconf import OmegaConf\nfrom torch.utils.data import DataLoader\nfrom transformers import get_cosine_schedule_with_warmup, get_linear_schedule_with_warmup\nfrom tqdm.auto import tqdm\n\nfrom src.preprocess import prepare_datasets, PreferenceCollator\nfrom src.model import load_models, compute_logps\n\n# ---------------------------\n#    LOSS IMPLEMENTATIONS\n# ---------------------------\n\ndef dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta: float):\n    \"\"\"Standard DPO loss (single temperature/kl weight).\"\"\"\n    preference_term = -(logp_pos - logp_neg).sigmoid().log().mean()\n    kl = 0.5 * (((logp_pos - logp_pos_ref) ** 2) + ((logp_neg - logp_neg_ref) ** 2)).mean()\n    return preference_term + beta * kl\n\n\ndef td_dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta: float, tau: float):\n    \"\"\"Temperature–decoupled DPO loss.\"\"\"\n    preference_term = -((logp_pos - logp_neg) / tau).sigmoid().log().mean()\n    kl = 0.5 * (((logp_pos - logp_pos_ref) ** 2) + ((logp_neg - logp_neg_ref) ** 2)).mean()\n    return preference_term + beta * kl\n\n# ---------------------------\n#      TRAINING FUNCTION\n# ---------------------------\n\ndef run_training(cfg, trial=None):\n    \"\"\"Runs a single training session; if `trial` is Optuna trial, hyper-params are already sampled.\"\"\"\n    # Prepare seeds\n    torch.manual_seed(cfg.training.seed)\n    random.seed(cfg.training.seed)\n    os.environ[\"PYTHONHASHSEED\"] = str(cfg.training.seed)\n\n    # Load data/tokeniser and models\n    tokenizer, train_ds, val_ds = prepare_datasets(cfg)\n    model, ref_model = load_models(cfg, tokenizer)\n\n    collator = PreferenceCollator(tokenizer, max_length=cfg.dataset.preprocessing.max_length)\n    train_loader = DataLoader(train_ds, batch_size=cfg.training.per_device_train_batch_size, shuffle=True,\n                              num_workers=4, collate_fn=collator)\n    val_loader = DataLoader(val_ds, batch_size=cfg.training.per_device_train_batch_size, shuffle=False,\n                            num_workers=2, collate_fn=collator)\n\n    # Optimiser + LR scheduler\n    no_decay = [\"bias\", \"LayerNorm.weight\"]\n    params = [\n        {\n            \"params\": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],\n            \"weight_decay\": cfg.training.weight_decay,\n        },\n        {\"params\": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], \"weight_decay\": 0.0},\n    ]\n    optimizer = torch.optim.AdamW(params, lr=cfg.training.learning_rate)\n    num_update_steps_per_epoch = math.ceil(len(train_loader) / cfg.training.gradient_accumulation_steps)\n    max_steps = cfg.training.epochs * num_update_steps_per_epoch\n    if cfg.training.lr_scheduler_type == \"cosine\":\n        scheduler = get_cosine_schedule_with_warmup(optimizer, cfg.training.warmup_steps, max_steps)\n    else:\n        scheduler = get_linear_schedule_with_warmup(optimizer, cfg.training.warmup_steps, max_steps)\n\n    # WandB init (only if not disabled)\n    if cfg.wandb.mode != \"disabled\":\n        wandb_run = wandb.init(\n            entity=cfg.wandb.entity,\n            project=cfg.wandb.project,\n            id=cfg.run.run_id,\n            config=OmegaConf.to_container(cfg, resolve=True),\n            resume=\"allow\",\n            mode=cfg.wandb.mode,\n        )\n        print(f\"WandB URL: {wandb_run.url}\")\n    else:\n        wandb_run = None\n        os.environ[\"WANDB_DISABLED\"] = \"true\"\n\n    device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n    model.to(device)\n    ref_model.to(device)\n    ref_model.eval()\n\n    best_val_acc = 0.0\n    global_step = 0\n    for epoch in range(cfg.training.epochs):\n        model.train()\n        epoch_loss = 0.0\n        correct = 0\n        total = 0\n        pbar = tqdm(train_loader, desc=f\"Epoch {epoch+1}/{cfg.training.epochs}\")\n        for step, batch in enumerate(pbar):\n            # ---------------- Forward -----------------\n            logp_pos, logp_neg, logp_pos_ref, logp_neg_ref = compute_logps(model, ref_model, batch, device)\n            if cfg.loss.name == \"dpo_loss\":\n                loss = dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta=cfg.loss.beta)\n            else:\n                loss = td_dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta=cfg.loss.beta, tau=cfg.loss.tau)\n\n            loss = loss / cfg.training.gradient_accumulation_steps\n            loss.backward()\n            epoch_loss += loss.item()\n\n            # accuracy stats (no grad accumulation influence)\n            correct += (logp_pos > logp_neg).sum().item()\n            total += logp_pos.size(0)\n\n            if (step + 1) % cfg.training.gradient_accumulation_steps == 0:\n                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.max_grad_norm)\n                optimizer.step()\n                scheduler.step()\n                optimizer.zero_grad(set_to_none=True)\n                global_step += 1\n\n                if wandb_run and global_step % cfg.training.logging_steps == 0:\n                    wandb.log({\n                        \"train/loss\": loss.item() * cfg.training.gradient_accumulation_steps,\n                        \"train/acc\": correct / total,\n                        \"train/epoch\": epoch + (step / len(train_loader)),\n                        \"lr\": scheduler.get_last_lr()[0],\n                        \"step\": global_step,\n                    }, step=global_step)\n\n                if cfg.training.evaluation_strategy == \"steps\" and global_step % cfg.training.eval_steps == 0:\n                    val_metrics = evaluate(model, ref_model, val_loader, cfg, device)\n                    if wandb_run:\n                        wandb.log({f\"val/{k}\": v for k, v in val_metrics.items()}, step=global_step)\n                    # Save best\n                    if val_metrics[\"val_pairwise_accuracy\"] > best_val_acc:\n                        best_val_acc = val_metrics[\"val_pairwise_accuracy\"]\n                        save_path = os.path.join(cfg.results_dir, cfg.run.run_id, \"best\")\n                        os.makedirs(save_path, exist_ok=True)\n                        model.save_pretrained(save_path)\n                        tokenizer.save_pretrained(save_path)\n                    model.train()\n        # epoch end val\n        val_metrics = evaluate(model, ref_model, val_loader, cfg, device)\n        if wandb_run:\n            wandb.log({f\"val/{k}\": v for k, v in val_metrics.items()}, step=global_step)\n        if val_metrics[\"val_pairwise_accuracy\"] > best_val_acc:\n            best_val_acc = val_metrics[\"val_pairwise_accuracy\"]\n            save_path = os.path.join(cfg.results_dir, cfg.run.run_id, \"best\")\n            os.makedirs(save_path, exist_ok=True)\n            model.save_pretrained(save_path)\n            tokenizer.save_pretrained(save_path)\n\n    # Summary\n    if wandb_run:\n        wandb_run.summary[\"best_val_pairwise_accuracy\"] = best_val_acc\n        wandb_run.finish()\n\n    return best_val_acc\n\n# ---------------------------\n#     VALIDATION FUNCTION\n# ---------------------------\n\ndef evaluate(model, ref_model, loader, cfg, device):\n    model.eval()\n    correct = 0\n    total = 0\n    with torch.no_grad():\n        for batch in loader:\n            logp_pos, logp_neg, *_ = compute_logps(model, ref_model, batch, device)\n            correct += (logp_pos > logp_neg).sum().item()\n            total += logp_pos.size(0)\n    model.train()\n    return {\n        \"val_pairwise_accuracy\": correct / total if total > 0 else 0.0,\n    }\n\n# ---------------------------\n#           OPTUNA\n# ---------------------------\n\ndef optuna_objective(trial, cfg):\n    # Sample hyper-parameters\n    for name, space in cfg.optuna.search_space.items():\n        if space.type == \"categorical\":\n            sampled = trial.suggest_categorical(name, space.choices)\n        elif space.type == \"loguniform\":\n            sampled = trial.suggest_float(name, space.low, space.high, log=True)\n        else:\n            raise ValueError(f\"Unsupported Optuna space type {space.type}\")\n        OmegaConf.update(cfg, f\"loss.{name}\" if name in [\"beta\", \"tau\"] else f\"training.{name}\", sampled, merge=False)\n    # Disable WandB inside trials\n    cfg.wandb.mode = \"disabled\"\n    val_acc = run_training(cfg, trial)\n    return -val_acc  # assume we minimise negative accuracy\n\n# ---------------------------\n#             CLI\n# ---------------------------\n\n@hydra.main(config_path=\"../config\", config_name=\"config\")\ndef main(cfg):\n    os.environ[\"TOKENIZERS_PARALLELISM\"] = \"false\"\n    os.makedirs(os.path.join(cfg.results_dir, cfg.run.run_id), exist_ok=True)\n\n    # ============ MODE ADJUSTMENT ==========\n    if cfg.mode == \"trial\":\n        cfg.wandb.mode = \"disabled\"\n        cfg.optuna.n_trials = 0\n        cfg.training.epochs = 1\n        cfg.training.eval_steps = max(cfg.training.eval_steps, 10)\n    elif cfg.mode == \"full\":\n        cfg.wandb.mode = \"online\"\n    else:\n        raise ValueError(\"mode must be 'trial' or 'full'\")\n\n    # ---------- OPTUNA OR DIRECT ----------\n    if cfg.optuna.n_trials and cfg.optuna.n_trials > 0:\n        study = optuna.create_study(direction=cfg.optuna.direction)\n        study.optimize(lambda t: optuna_objective(t, OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))),\n                       n_trials=cfg.optuna.n_trials)\n        best_params = study.best_params\n        print(f\"Best hyper-parameters from Optuna: {best_params}\")\n        # Update cfg with best\n        for k, v in best_params.items():\n            OmegaConf.update(cfg, f\"loss.{k}\" if k in [\"beta\", \"tau\"] else f\"training.{k}\", v, merge=False)\n    # ------ Final Training & WandB log ------\n    run_training(cfg)\n\nif __name__ == \"__main__\":\n    main()\n",
+    "evaluate_py": "import argparse\nimport json\nimport os\nfrom collections import defaultdict\n\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nimport wandb\nfrom tqdm.auto import tqdm\n\n\n# ------------- UTILITIES -------------\n\ndef save_json(obj, path):\n    with open(path, \"w\") as f:\n        json.dump(obj, f, indent=2)\n\n\ndef plot_learning_curve(history_df, run_id, save_dir):\n    fig, ax = plt.subplots(figsize=(8, 5))\n    if \"train/loss\" in history_df.columns:\n        ax.plot(history_df[\"step\"], history_df[\"train/loss\"], label=\"train/loss\")\n    if \"val/val_pairwise_accuracy\" in history_df.columns:\n        ax.plot(history_df[\"step\"], history_df[\"val/val_pairwise_accuracy\"], label=\"val/accuracy\")\n    ax.set_xlabel(\"Step\")\n    ax.set_ylabel(\"Metric\")\n    ax.set_title(f\"Learning Curves – {run_id}\")\n    ax.legend()\n    fig.tight_layout()\n    fname = os.path.join(save_dir, f\"{run_id}_learning_curve.pdf\")\n    fig.savefig(fname)\n    plt.close(fig)\n    return fname\n\n\ndef plot_confusion_matrix(summary, run_id, save_dir):\n    # Retrieve counts\n    tp = summary.get(\"val_true_pos\", summary.get(\"val_correct\", 0))\n    fp = summary.get(\"val_false_pos\", 0)\n    tn = summary.get(\"val_true_neg\", 0)\n    fn = summary.get(\"val_false_neg\", summary.get(\"val_total\", 0) - tp)\n    matrix = [[tp, fp], [fn, tn]]\n    fig, ax = plt.subplots(figsize=(4, 4))\n    sns.heatmap(matrix, annot=True, fmt=\"d\", cmap=\"Blues\", cbar=False, ax=ax)\n    ax.set_xlabel(\"Predicted Positive / Negative\")\n    ax.set_ylabel(\"Actual Positive / Negative\")\n    ax.set_title(f\"Confusion Matrix – {run_id}\")\n    fname = os.path.join(save_dir, f\"{run_id}_confusion_matrix.pdf\")\n    fig.tight_layout()\n    fig.savefig(fname)\n    plt.close(fig)\n    return fname\n\n\n# ------------- MAIN -------------\n\ndef per_run_processing(api, entity, project, run_id, results_dir):\n    run = api.run(f\"{entity}/{project}/{run_id}\")\n    history = run.history()\n    summary = run.summary._json_dict\n    config = dict(run.config)\n\n    run_dir = os.path.join(results_dir, run_id)\n    os.makedirs(run_dir, exist_ok=True)\n\n    # Save metrics JSON\n    metrics_path = os.path.join(run_dir, \"metrics.json\")\n    save_json({\"summary\": summary, \"config\": config}, metrics_path)\n\n    # Figures\n    figures = []\n    figures.append(plot_learning_curve(history, run_id, run_dir))\n    figures.append(plot_confusion_matrix(summary, run_id, run_dir))\n\n    return {\n        \"metrics_path\": metrics_path,\n        \"figures\": figures,\n        \"summary\": summary,\n    }\n\n\ndef aggregated_analysis(per_run_results, comparison_dir):\n    os.makedirs(comparison_dir, exist_ok=True)\n    # Aggregate summaries\n    aggregated = {rid: res[\"summary\"] for rid, res in per_run_results.items()}\n    save_json(aggregated, os.path.join(comparison_dir, \"aggregated_metrics.json\"))\n\n    # Example comparison figure: bar chart of best val accuracy\n    fig, ax = plt.subplots(figsize=(6, 4))\n    run_ids = list(per_run_results.keys())\n    accuracies = [per_run_results[r][\"summary\"].get(\"best_val_pairwise_accuracy\", 0) for r in run_ids]\n    sns.barplot(x=run_ids, y=accuracies, palette=\"viridis\", ax=ax)\n    for i, v in enumerate(accuracies):\n        ax.text(i, v + 0.005, f\"{v:.3f}\", ha=\"center\", va=\"bottom\")\n    ax.set_ylim(0, 1)\n    ax.set_ylabel(\"Best Val Pairwise Accuracy\")\n    ax.set_title(\"Cross-Run Accuracy Comparison\")\n    fig.tight_layout()\n    comp_fig = os.path.join(comparison_dir, \"comparison_accuracy_bar_chart.pdf\")\n    fig.savefig(comp_fig)\n    plt.close(fig)\n    return comp_fig\n\n\ndef main():\n    parser = argparse.ArgumentParser()\n    parser.add_argument(\"results_dir\", type=str)\n    parser.add_argument(\"run_ids\", type=str, help=\"JSON list of run IDs\")\n    args = parser.parse_args()\n\n    run_ids = json.loads(args.run_ids)\n\n    # Load global WandB config\n    with open(os.path.join(\"config\", \"config.yaml\")) as f:\n        import yaml\n        cfg = yaml.safe_load(f)\n    entity = cfg[\"wandb\"][\"entity\"]\n    project = cfg[\"wandb\"][\"project\"]\n\n    api = wandb.Api()\n\n    per_run_results = {}\n    print(\"Processing individual runs…\")\n    for rid in tqdm(run_ids):\n        per_run_results[rid] = per_run_processing(api, entity, project, rid, args.results_dir)\n        print(f\"Saved individual outputs for {rid} -> {per_run_results[rid]['metrics_path']}\")\n        for fig_path in per_run_results[rid][\"figures\"]:\n            print(fig_path)\n\n    # Aggregated\n    comparison_dir = os.path.join(args.results_dir, \"comparison\")\n    comp_fig = aggregated_analysis(per_run_results, comparison_dir)\n    print(f\"Aggregated metrics saved to {comparison_dir}\")\n    print(comp_fig)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "preprocess_py": "import datasets\nfrom datasets import load_dataset\nfrom typing import Tuple, List\nfrom transformers import AutoTokenizer\nimport torch\n\n\nclass PairPreferenceDataset(torch.utils.data.Dataset):\n    \"\"\"Maps raw preference dataset into a standard (prompt,pos,neg) format.\"\"\"\n\n    def __init__(self, hf_ds, tokenizer: AutoTokenizer):\n        self.hf_ds = hf_ds\n        self.tokenizer = tokenizer\n\n    def __len__(self):\n        return len(self.hf_ds)\n\n    def __getitem__(self, idx):\n        sample = self.hf_ds[idx]\n        # Harmonise field names\n        if \"prompt\" in sample:\n            prompt = sample[\"prompt\"]\n        elif \"instruction\" in sample:\n            prompt = sample[\"instruction\"]\n        else:\n            raise KeyError(\"Cannot locate prompt field in dataset sample\")\n\n        if \"completion_a\" in sample and \"completion_b\" in sample and \"choice\" in sample:\n            if sample[\"choice\"] == 0:\n                pos, neg = sample[\"completion_a\"], sample[\"completion_b\"]\n            else:\n                pos, neg = sample[\"completion_b\"], sample[\"completion_a\"]\n        elif \"chosen\" in sample and \"rejected\" in sample:\n            pos, neg = sample[\"chosen\"], sample[\"rejected\"]\n        else:\n            raise KeyError(\"Cannot parse positive / negative completions from sample\")\n        return {\"prompt\": prompt, \"pos\": pos, \"neg\": neg}\n\n\nclass PreferenceCollator:\n    def __init__(self, tokenizer: AutoTokenizer, max_length: int = 2048):\n        self.tokenizer = tokenizer\n        self.max_length = max_length\n        self.eos = tokenizer.eos_token or \"</s>\"\n\n    def __call__(self, batch: List[dict]):\n        prompts = [b[\"prompt\"] for b in batch]\n        pos_responses = [b[\"pos\"] for b in batch]\n        neg_responses = [b[\"neg\"] for b in batch]\n\n        def build_inputs(prompts, responses):\n            inputs = [p + self.eos + r + self.eos for p, r in zip(prompts, responses)]\n            tokenised = self.tokenizer(\n                inputs,\n                padding=True,\n                truncation=True,\n                max_length=self.max_length,\n                return_tensors=\"pt\",\n            )\n            # Compute response mask (1 for response tokens, 0 for prompt)\n            mask = torch.zeros_like(tokenised[\"input_ids\"], dtype=torch.bool)\n            for i, (p, r) in enumerate(zip(prompts, responses)):\n                prompt_tokens = self.tokenizer(p + self.eos)[\"input_ids\"]\n                prompt_len = len(prompt_tokens)\n                total_len = tokenised[\"attention_mask\"][i].sum().item()\n                mask[i, prompt_len: total_len] = 1\n            tokenised[\"response_mask\"] = mask\n            return tokenised\n\n        pos_batch = build_inputs(prompts, pos_responses)\n        neg_batch = build_inputs(prompts, neg_responses)\n        return {\n            \"pos\": pos_batch,\n            \"neg\": neg_batch,\n        }\n\n\ndef prepare_datasets(cfg):\n    \"\"\"Loads and preprocesses datasets as torch Dataset objects.\"\"\"\n    tokenizer = AutoTokenizer.from_pretrained(cfg.model.name, cache_dir=\".cache/\", use_fast=True)\n    raw_ds = load_dataset(cfg.dataset.name, cache_dir=\".cache/\")\n    # Split if necessary\n    if \"train\" in raw_ds and \"validation\" in raw_ds:\n        train_hf = raw_ds[\"train\"]\n        val_hf = raw_ds[\"validation\"]\n    else:\n        split = raw_ds[\"train\"].train_test_split(test_size=cfg.dataset.split.val)\n        train_hf, val_hf = split[\"train\"], split[\"test\"]\n\n    train_ds = PairPreferenceDataset(train_hf, tokenizer)\n    val_ds = PairPreferenceDataset(val_hf, tokenizer)\n    return tokenizer, train_ds, val_ds\n",
+    "model_py": "import copy\nimport torch\nfrom transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig\nfrom peft import LoraConfig, get_peft_model\n\n__all__ = [\"load_models\", \"compute_logps\"]\n\n\ndef load_models(cfg, tokenizer):\n    \"\"\"Loads trainable model and frozen reference model following cfg settings.\"\"\"\n    bnb_config = None\n    if cfg.model.load_in_4bit:\n        bnb_config = BitsAndBytesConfig(\n            load_in_4bit=True,\n            bnb_4bit_use_double_quant=True,\n            bnb_4bit_quant_type=\"nf4\",\n            bnb_4bit_compute_dtype=torch.bfloat16,\n        )\n\n    model = AutoModelForCausalLM.from_pretrained(\n        cfg.model.name,\n        cache_dir=\".cache/\",\n        torch_dtype=getattr(torch, cfg.model.torch_dtype),\n        quantization_config=bnb_config,\n        device_map=\"auto\",\n    )\n    model.gradient_checkpointing_enable()\n\n    if cfg.model.get(\"peft\"):\n        peft_cfg = LoraConfig(\n            r=cfg.model.peft.lora_r,\n            lora_alpha=cfg.model.peft.lora_alpha,\n            lora_dropout=cfg.model.peft.lora_dropout,\n            bias=\"none\",\n            task_type=\"CAUSAL_LM\",\n        )\n        model = get_peft_model(model, peft_cfg)\n\n    # Frozen reference model (no gradients, same base weights, no LoRA)\n    ref_model = AutoModelForCausalLM.from_pretrained(\n        cfg.model.name,\n        cache_dir=\".cache/\",\n        torch_dtype=getattr(torch, cfg.model.torch_dtype),\n        quantization_config=bnb_config,\n        device_map=\"auto\",\n    )\n    ref_model.eval()\n    for p in ref_model.parameters():\n        p.requires_grad_(False)\n\n    return model, ref_model\n\n\n@torch.no_grad()\ndef _gather_log_probs(logits, input_ids):\n    # logits: (B, T, V), input_ids: (B, T)\n    logp = torch.nn.functional.log_softmax(logits, dim=-1)\n    # shift so that logits correspond to next token\n    logp = logp[:, :-1, :]\n    target_ids = input_ids[:, 1:]\n    # gather log probs of the target tokens\n    gathered = torch.gather(logp, 2, target_ids.unsqueeze(-1)).squeeze(-1)\n    return gathered\n\n\ndef compute_logps(model, ref_model, batch, device):\n    \"\"\"Compute average log-probabilities for pos/neg responses.\"\"\"\n    def forward(batch_part):\n        input_ids = batch_part[\"input_ids\"].to(device)\n        attention_mask = batch_part[\"attention_mask\"].to(device)\n        response_mask = batch_part[\"response_mask\"].to(device)[:, 1:]  # align with shifted targets\n        outputs = model(input_ids=input_ids, attention_mask=attention_mask)\n        log_probs = _gather_log_probs(outputs.logits, input_ids)\n        # Only response tokens\n        seq_logp = (log_probs * response_mask).sum(dim=1) / response_mask.sum(dim=1)\n        return seq_logp\n\n    pos = batch[\"pos\"]\n    neg = batch[\"neg\"]\n\n    with torch.no_grad():\n        logp_pos_ref = forward_ref(ref_model, pos, device)\n        logp_neg_ref = forward_ref(ref_model, neg, device)\n    # Trainable model (requires grad)\n    logp_pos = forward(model, pos)\n    logp_neg = forward(model, neg)\n    return logp_pos, logp_neg, logp_pos_ref, logp_neg_ref\n\n\ndef forward_ref(ref_model, batch_part, device):\n    input_ids = batch_part[\"input_ids\"].to(device)\n    attention_mask = batch_part[\"attention_mask\"].to(device)\n    response_mask = batch_part[\"response_mask\"].to(device)[:, 1:]\n    outputs = ref_model(input_ids=input_ids, attention_mask=attention_mask)\n    log_probs = torch.nn.functional.log_softmax(outputs.logits, dim=-1)\n    log_probs = log_probs[:, :-1, :]\n    target_ids = input_ids[:, 1:]\n    gathered = torch.gather(log_probs, 2, target_ids.unsqueeze(-1)).squeeze(-1)\n    seq_logp = (gathered * response_mask).sum(dim=1) / response_mask.sum(dim=1)\n    return seq_logp\n",
+    "main_py": "import subprocess\nimport os\nimport hydra\nfrom omegaconf import OmegaConf\n\n@hydra.main(config_path=\"../config\", config_name=\"config\")\ndef main(cfg):\n    # Mode-specific overrides\n    if cfg.mode == \"trial\":\n        cfg.wandb.mode = \"disabled\"\n        cfg.optuna.n_trials = 0\n        cfg.training.epochs = 1\n    elif cfg.mode == \"full\":\n        cfg.wandb.mode = \"online\"\n    else:\n        raise ValueError(\"mode must be 'trial' or 'full'\")\n\n    # Loop over seeds\n    for seed in cfg.training.seed_list:\n        run_id_seed = f\"{cfg.run.run_id}-seed{seed}\"\n        overrides = [\n            f\"run.run_id={run_id_seed}\",\n            f\"training.seed={seed}\",\n            f\"results_dir={cfg.results_dir}\",\n            f\"wandb.mode={cfg.wandb.mode}\",\n            f\"mode={cfg.mode}\",\n        ]\n        cmd = [\n            \"python\", \"-u\", \"-m\", \"src.train\",\n        ] + overrides\n        print(\"Launching training:\", \" \".join(cmd))\n        subprocess.run(cmd, check=True)\n\nif __name__ == \"__main__\":\n    main()\n",
+    "pyproject_toml": "[project]\nname = \"td_dpo_experiments\"\nversion = \"0.1.0\"\ndescription = \"Temperature-Decoupled DPO LLM preference optimisation experiments\"\nrequires-python = \">=3.9\"\n\n[project.dependencies]\n# Core\ntorch = \">=2.0\"\ntransformers = \">=4.34.0\"\ndatasets = \">=2.14.0\"\npeft = \">=0.5.0\"\nbitsandbytes = \"*\"\nhydra-core = \">=1.3.2\"\nwandb = \">=0.15.12\"\noptuna = \">=3.3.0\"\nmatplotlib = \">=3.7\"\nseaborn = \">=0.13.0\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n",
+    "config_yaml": "defaults:\n  - _self_\n  - run: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k  # default, override via CLI\n\n# Global experiment mode (trial/full) and output path (override via CLI)\nmode: full\nresults_dir: ./results\n\nwandb:\n  entity: gengaru617-personal\n  project: 251023-test\n  mode: online  # auto-overridden in main & train\n\n# Placeholder groups – actual content comes from selected run YAML\nrun: {}\n"
+}

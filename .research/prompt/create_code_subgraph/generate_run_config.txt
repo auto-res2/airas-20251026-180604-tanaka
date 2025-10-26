@@ -1,0 +1,114 @@
+
+LLM Name: o3-2025-04-16
+Input:
+You are an AI research assistant tasked with generating Hydra configuration files for experiment runs.
+
+# Task
+Generate individual YAML configuration files for each experiment run. These configs will be used by Hydra to configure specific experimental variations.
+
+# Input Information
+
+## Research Method
+{
+    "Open Problems": "In DPO-style preference optimization the single hyper-parameter β simultaneously (1) scales the preference loss curvature and (2) weights the KL-divergence regulariser.  This coupling makes training unstable: small β under-regularises but also flattens the preference loss, while large β over-regularises and explodes the preference-loss gradient.  Reported failures of DiscoPOP/DPO for β≤0.01 or β≥2.5 stem directly from this entanglement.",
+    "Methods": "Temperature-Decoupled Direct Preference Optimisation (TD-DPO)\n1. Keep the KL term exactly as in DPO, still weighted by β.\n2. Introduce an independent temperature τ that ONLY rescales the preference margin Δ = log p_θ(y⁺|x) − log p_θ(y⁻|x).\n   TD-DPO loss per pair:\n       L = − log σ( Δ / τ )  +  β · KL(p_θ || p₀)\n   where σ is the sigmoid.  Setting τ<1 sharpens the preference signal without forcing a smaller KL, while τ>1 smooths gradients when β must be large for safety.\nTheoretically, this separates information-theoretic regularisation (β) from optimisation stability (τ), giving one extra scalar degree of freedom with negligible implementation cost.",
+    "Experimental Setup": "Model: open-source 7B Llama-2-chat (HF transformers).\nData: Argilla DPO-Mix-7k (same as DiscoPOP paper) – train/valid split 90/10.\nBaselines: (a) original DPO (single β), (b) DiscoPOP (best reported β), (c) proposed TD-DPO.\nHyper-grid: β ∈ {0.01,0.05,0.5,2.5}; τ ∈ {0.5,1.0,2.0} (TD-DPO only).\nOptimiser & hardware: AdamW, lr 1e-5, 4 × A100 80G, 3 epochs.\nEvaluation: MT-Bench score (GPT-4 judge) and validation pairwise accuracy.\nReport mean score over three seeds.",
+    "Experimental Code": "import torch, torch.nn.functional as F\n\ndef td_dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta=0.05, tau=1.0):\n    \"\"\"TD-DPO pairwise loss.\n    logp_* : tensors of shape (batch,)\n    beta   : KL weight (as in DPO)\n    tau    : new temperature for preference margin\n    returns scalar loss\"\"\"\n    # preference term\n    delta = (logp_pos - logp_neg) / tau        # <-- only change w.r.t. DPO\n    pref_loss = -F.logsigmoid(delta).mean()\n    # KL term (same as DPO)\n    kl = 0.5*((logp_pos - logp_pos_ref)**2 + (logp_neg - logp_neg_ref)**2).mean()\n    return pref_loss + beta * kl\n\n# during training\n# logits_pos, logits_neg come from current model\n# logits_pos_ref, logits_neg_ref from frozen reference model\nloss = td_dpo_loss(logp_pos, logp_neg, logp_pos_ref, logp_neg_ref, beta=beta, tau=tau)\nloss.backward()",
+    "Expected Result": "• When β is very small (0.01) TD-DPO with τ=0.5 regains strong gradients and matches performance of best-tuned DPO at β=0.05.\n• When β is large (2.5) TD-DPO with τ=2.0 avoids divergence; MT-Bench improves by ≈+1.5 points over baseline DiscoPOP.\n• For mid-range β (0.05) the default τ=1 keeps parity with DPO (<0.1 score difference).\nOverall, cross-β variance of MT-Bench scores is reduced by ~40 %, showing robustness.",
+    "Expected Conclusion": "A single extra scalar (τ) disentangles optimisation curvature from regularisation strength, eliminating observed instabilities of DPO/DiscoPOP with almost no code change.  Because the modification is orthogonal, existing hyper-parameter β sweeps remain valid, while τ offers a lightweight knob for further gains.  This demonstrates how a minimal but principled adjustment to the objective function yields measurable, practical improvements for LLM preference optimisation."
+}
+
+## Experimental Design
+{'experiment_summary': 'Purpose: verify that Temperature-Decoupled Direct Preference Optimisation (TD-DPO) makes preference-finetuning of large language models more stable and robust than standard Direct Preference Optimisation (DPO).\n\nComponents & workflow:\n1. Base model: load HuggingFace “Llama-2-Chat-7B” in 4-bit QLoRA format so it fits comfortably on a single A100; keep a frozen copy as reference policy.\n2. Data: use the public Argilla DPO-Mix-7k pair-preference corpus (≈6.3 k train / 0.7 k val). Each sample provides (x, y⁺, y⁻).\n3. Training loops (three random seeds):\n   a. Baseline run with standard DPO loss for four β values {0.01,0.05,0.5,2.5}.\n   b. Proposed TD-DPO run on the same β grid while sweeping the additional temperature τ ∈ {0.5,1.0,2.0}.\n   c. optimiser: AdamW, lr 1e-5, weight-decay 0.01, batch 128, 3 epochs; gradient-accumulation and FSDP across 4×A100 (≤60 GB GPU-RAM used).\n4. During training compute validation pairwise accuracy every 250 steps; keep best checkpoint by this metric.\n5. Post-training evaluation: generate answers on MT-Bench v1.1, score with GPT-4 auto-judge, report mean of three seeds.\n6. Analysis: compare MT-Bench and validation accuracy across β; measure variance reduction and highlight cases β=0.01 and β=2.5 where TD-DPO is expected to outperform.\n\nThe experiment therefore demonstrates that decoupling curvature (τ) from regularisation (β) yields higher scores and lower sensitivity with negligible extra cost.', 'evaluation_metrics': ['MT-Bench score', 'Pairwise accuracy'], 'proposed_method': 'Temperature-Decoupled Direct Preference Optimisation (TD-DPO)\nObjective: stabilise preference-based RL-free finetuning by separating the roles of the single DPO hyper-parameter β.\nTheory: In DPO, β simultaneously scales the KL-divergence regulariser and the curvature of the pairwise preference loss. TD-DPO introduces an independent temperature τ that rescales only the preference margin Δ = log pθ(y⁺|x) − log pθ(y⁻|x). This yields:\n   L(x,y⁺,y⁻) = −log σ(Δ/τ) + β · KL( pθ || p0 ).\nProperties:\n• β continues to control the information-theoretic distance from the reference policy.\n• τ (<1 sharpen, >1 smooth) controls optimisation curvature without touching the KL term.\nAlgorithmic procedure per minibatch:\n1. Forward pass current model to get log-probs for preferred and dispreferred answers.\n2. Forward pass frozen reference model for the same answers.\n3. Compute Δ, divide by τ, compute −log σ to obtain preference loss.\n4. Compute symmetric KL between current and reference log-probs.\n5. Combine losses as above; back-propagate, update with AdamW.\n6. Repeat for all β,τ grid points. Hyper-parameter search chooses (β,τ) that maximises validation accuracy.\nImplementation adds two code lines to standard DPO: one temperature division and one hyper-parameter entry, so existing codebases can adopt TD-DPO instantly.', 'comparative_methods': ['Direct Preference Optimisation (DPO)'], 'models_to_use': ['Llama-2-Chat-7B'], 'datasets_to_use': ['Argilla DPO-Mix-7k'], 'hyperparameters_to_search': {'beta': '0.01,0.05,0.5,2.5', 'tau': '0.5,1.0,2.0'}, 'external_resources': {'hugging_face': {'models': [{'id': 'lmsys/sglang-EAGLE-llama2-chat-7B', 'author': 'lmsys', 'sha': '6be2ade3f35ebe03544227dd354b220a2d039435', 'created_at': datetime.datetime(2024, 12, 31, 8, 48, 46, tzinfo=TzInfo(UTC)), 'last_modified': datetime.datetime(2024, 12, 31, 9, 10, 34, tzinfo=TzInfo(UTC)), 'private': False, 'gated': False, 'disabled': False, 'downloads': 61232, 'likes': 2, 'siblings': [{'rfilename': '.gitattributes', 'size': None, 'blob_id': None, 'lfs': None}, {'rfilename': 'README.md', 'size': None, 'blob_id': None, 'lfs': None}, {'rfilename': 'config.json', 'size': None, 'blob_id': None, 'lfs': None}, {'rfilename': 'pytorch_model.bin', 'size': None, 'blob_id': None, 'lfs': None}], 'card_data': None, 'tags': ['pytorch', 'llama', 'region:us'], 'pipeline_tag': None, 'library_name': None, 'readme': 'This model is copied from https://huggingface.co/yuhuili/EAGLE-llama2-chat-7B with the following modifications to make it compatible with SGLang:\n- Modify the architecture in config.json to LlamaForCausalLMEagle', 'model_index': None, 'widget_data': None, 'config': None, 'transformers_info': None, 'spaces': None, 'safetensors': None, 'used_storage': None, 'extracted_code': ''}], 'datasets': [{'id': 'argilla/dpo-mix-7k', 'author': 'argilla', 'sha': 'f8869fc91bde5c71a104667292addcbbfd15985d', 'created_at': datetime.datetime(2024, 1, 30, 5, 49, 25, tzinfo=TzInfo(UTC)), 'last_modified': datetime.datetime(2024, 7, 16, 13, 31, 40, tzinfo=TzInfo(UTC)), 'private': False, 'gated': False, 'disabled': False, 'downloads': 174, 'likes': 171, 'siblings': [{'rfilename': '.gitattributes', 'size': None, 'blob_id': None, 'lfs': None}, {'rfilename': 'README.md', 'size': None, 'blob_id': None, 'lfs': None}, {'rfilename': 'data/test-00000-of-00001.parquet', 'size': None, 'blob_id': None, 'lfs': None}, {'rfilename': 'data/train-00000-of-00001.parquet', 'size': None, 'blob_id': None, 'lfs': None}], 'card_data': {'license': 'mit', 'language': ['en'], 'library_name': None, 'pipeline_tag': None, 'tags': ['distilabel', 'synthetic', 'dpo', 'argilla'], 'datasets': [], 'model_type': None, 'base_model': None, 'task_categories': [], 'size_categories': ['1K<n<10K'], 'metrics': [], 'widget': []}, 'tags': ['language:en', 'license:mit', 'size_categories:1K<n<10K', 'format:parquet', 'modality:tabular', 'modality:text', 'library:datasets', 'library:pandas', 'library:mlcroissant', 'library:polars', 'library:distilabel', 'library:argilla', 'region:us', 'distilabel', 'synthetic', 'dpo', 'argilla'], 'pipeline_tag': None, 'library_name': None, 'readme': '---\nlanguage:\n- en\nlicense: mit\nsize_categories:\n- 1K<n<10K\nconfigs:\n- config_name: default\n  data_files:\n  - split: train\n    path: data/train-*\n  - split: test\n    path: data/test-*\ndataset_info:\n  features:\n  - name: dataset\n    dtype: string\n  - name: chosen\n    list:\n    - name: content\n      dtype: string\n    - name: role\n      dtype: string\n  - name: rejected\n    list:\n    - name: content\n      dtype: string\n    - name: role\n      dtype: string\n  - name: chosen_rating\n    dtype: float64\n  - name: rejected_rating\n    dtype: float64\n  splits:\n  - name: train\n    num_bytes: 41362946\n    num_examples: 6750\n  - name: test\n    num_bytes: 4586808\n    num_examples: 750\n  download_size: 24232011\n  dataset_size: 45949754\ntags:\n- distilabel\n- synthetic\n- dpo\n- argilla\n---\n\n# Argilla DPO Mix 7K Dataset\n\n> A small cocktail combining DPO datasets built by Argilla with [distilabel](https://github.com/argilla-io/distilabel). The goal of this dataset is having a small, high-quality DPO dataset by filtering only highly rated chosen responses. \n\n<div>\n    <img src="https://cdn-uploads.huggingface.co/production/uploads/60420dccc15e823a685f2b03/Csd2-zPji7iwIxyz6UFe1.webp">\n</div>\n\n\n<p align="center">\n  <a href="https://github.com/argilla-io/distilabel">\n    <img src="https://raw.githubusercontent.com/argilla-io/distilabel/main/docs/assets/distilabel-badge-light.png" alt="Built with Distilabel" width="200" height="32"/>\n  </a>\n</p>\n\n\n## Datasets mixed\n\nAs already mentioned, this dataset mixes the following datasets:\n\n* [`argilla/distilabel-capybara-dpo-7k-binarized`](https://huggingface.co/datasets/argilla/distilabel-capybara-dpo-7k-binarized): random sample of highly scored chosen responses (>=4).\n* [`argilla/distilabel-intel-orca-dpo-pairs`](https://huggingface.co/datasets/argilla/distilabel-intel-orca-dpo-pairs): random sample of highly scored chosen responses (>=8).\n* [`argilla/ultrafeedback-binarized-preferences-cleaned`](https://huggingface.co/datasets/argilla/ultrafeedback-binarized-preferences-cleaned): random sample of highly scored chosen responses (>=4).\n\nThe samples have been randomly selected from the original datasets with a proportion of 0.33 each, as can be seen via the `dataset` column of the dataset.\n\n## Next steps\n\n* Adding more samples\n* Use data selection techniques to improve the diversity, usefulness, and complexity of the dataset.', 'model_index': None, 'widget_data': None, 'config': None, 'transformers_info': None, 'spaces': None, 'safetensors': None, 'used_storage': None, 'extracted_code': ''}]}}, 'experiment_code': None}
+
+## Experiment Runs
+
+- Run ID: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+  Method: proposed
+  Model: Llama-2-Chat-7B
+  Dataset: Argilla DPO-Mix-7k
+
+- Run ID: comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k
+  Method: comparative-1
+  Model: Llama-2-Chat-7B
+  Dataset: Argilla DPO-Mix-7k
+
+
+# Requirements
+
+## Configuration Structure
+Each run configuration should include:
+- run_id: Unique identifier for this run
+- method: The method name (baseline, proposed, ablation, etc.)
+- model: Model-specific parameters (name, architecture details, hyperparameters)
+- dataset: Dataset-specific parameters (name, preprocessing settings, split ratios)
+- training: Training hyperparameters (learning rate, batch size, epochs, optimizer settings)
+- optuna: Hyperparameter search space definition for Optuna optimization
+  - Define search spaces for key hyperparameters using Optuna's suggest methods
+  - Example: learning_rate: [1e-5, 1e-3], batch_size: [16, 32, 64]
+- Any other experiment-specific settings
+
+## Format
+- Generate one YAML configuration per experiment run
+- Ensure valid YAML syntax
+- Use meaningful parameter values based on the research method and experimental design
+
+## Example Configuration
+```yaml
+run_id: baseline_bert_imdb
+method: baseline
+model:
+  name: bert-base-uncased
+  hidden_size: 768
+  num_layers: 12
+dataset:
+  name: imdb
+  max_length: 512
+  batch_size: 32
+training:
+  learning_rate: 2e-5
+  epochs: 3
+  optimizer: adamw
+  warmup_steps: 500
+optuna:
+  n_trials: 20
+  search_space:
+    learning_rate:
+      type: loguniform
+      low: 1e-5
+      high: 1e-3
+    batch_size:
+      type: categorical
+      choices: [16, 32, 64]
+```
+
+# Experimental Environment
+NVIDIA A100×8
+VRAM：80GB×8
+RAM：2048 GB
+
+# Instructions
+1. Generate one YAML configuration for each experiment run listed above
+2. Ensure configurations reflect the differences between baseline, proposed, and ablation methods
+3. Use appropriate hyperparameters based on the experimental design
+4. Include Optuna search space if hyperparameter optimization is beneficial for the experiment
+5. For Optuna search spaces, use appropriate distribution types:
+   - loguniform: For learning rates, regularization parameters
+   - uniform: For dropout rates, weight decay
+   - int: For hidden dimensions, number of layers
+   - categorical: For discrete choices like batch size, optimizer type
+
+Generate the configurations now:
+Output:
+{
+  "run_configs": [
+    {
+      "run_id": "proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k",
+      "run_config_yaml": "run_id: proposed-Llama-2-Chat-7B-Argilla-DPO-Mix-7k\nmethod: TD-DPO\nmodel:\n  name: meta-llama/Llama-2-7b-chat-hf\n  quantization: qlora-4bit\n  load_in_4bit: true\n  torch_dtype: bfloat16\n  peft:\n    lora_r: 64\n    lora_alpha: 16\n    lora_dropout: 0.05\ndataset:\n  name: argilla/dpo-mix-7k\n  split:\n    train: 0.9\n    val: 0.1\n  preprocessing:\n    max_length: 2048\ntraining:\n  epochs: 3\n  per_device_train_batch_size: 4\n  gradient_accumulation_steps: 32\n  global_batch_size: 128\n  learning_rate: 1e-5\n  weight_decay: 0.01\n  optimizer: adamw\n  lr_scheduler_type: cosine\n  warmup_steps: 100\n  evaluation_strategy: steps\n  eval_steps: 250\n  save_total_limit: 1\n  save_strategy: best\n  max_grad_norm: 1.0\n  bf16: true\n  logging_steps: 25\n  seed_list: [42, 43, 44]\n  report_to: wandb\nloss:\n  name: td_dpo_loss\n  beta: ${opt.beta}\n  tau: ${opt.tau}\n  kl_reference_model: true\ncompute:\n  gpus: 4\n  gpu_type: a100-80gb\n  strategy: fsdp\noptuna:\n  n_trials: 36\n  direction: minimize\n  objective_metric: val_pairwise_accuracy\n  search_space:\n    beta:\n      type: categorical\n      choices: [0.01, 0.05, 0.5, 2.5]\n    tau:\n      type: categorical\n      choices: [0.5, 1.0, 2.0]\n    learning_rate:\n      type: loguniform\n      low: 5e-6\n      high: 5e-5\n"
+    },
+    {
+      "run_id": "comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k",
+      "run_config_yaml": "run_id: comparative-1-Llama-2-Chat-7B-Argilla-DPO-Mix-7k\nmethod: DPO\nmodel:\n  name: meta-llama/Llama-2-7b-chat-hf\n  quantization: qlora-4bit\n  load_in_4bit: true\n  torch_dtype: bfloat16\n  peft:\n    lora_r: 64\n    lora_alpha: 16\n    lora_dropout: 0.05\ndataset:\n  name: argilla/dpo-mix-7k\n  split:\n    train: 0.9\n    val: 0.1\n  preprocessing:\n    max_length: 2048\ntraining:\n  epochs: 3\n  per_device_train_batch_size: 4\n  gradient_accumulation_steps: 32\n  global_batch_size: 128\n  learning_rate: 1e-5\n  weight_decay: 0.01\n  optimizer: adamw\n  lr_scheduler_type: cosine\n  warmup_steps: 100\n  evaluation_strategy: steps\n  eval_steps: 250\n  save_total_limit: 1\n  save_strategy: best\n  max_grad_norm: 1.0\n  bf16: true\n  logging_steps: 25\n  seed_list: [42, 43, 44]\n  report_to: wandb\nloss:\n  name: dpo_loss\n  beta: ${opt.beta}\n  kl_reference_model: true\ncompute:\n  gpus: 4\n  gpu_type: a100-80gb\n  strategy: fsdp\noptuna:\n  n_trials: 20\n  direction: minimize\n  objective_metric: val_pairwise_accuracy\n  search_space:\n    beta:\n      type: categorical\n      choices: [0.01, 0.05, 0.5, 2.5]\n    learning_rate:\n      type: loguniform\n      low: 5e-6\n      high: 5e-5\n"
+    }
+  ]
+}

@@ -26,7 +26,10 @@ def main(cfg):
     
     for seed in seed_list:
         run_id_seed = f"{cfg.run.run_id}-seed{seed}"
+        # Extract the run config name from the defaults or use the run_id
+        run_config_name = cfg.run.run_id.rsplit('-seed', 1)[0] if 'seed' in cfg.run.run_id else cfg.run.run_id
         overrides = [
+            f"run={run_config_name}",
             f"run.run_id={run_id_seed}",
             f"training.seed={seed}",
             f"results_dir={cfg.results_dir}",

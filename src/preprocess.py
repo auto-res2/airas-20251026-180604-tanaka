@@ -38,6 +38,21 @@ class PairPreferenceDataset(torch.utils.data.Dataset):
             pos, neg = sample["chosen"], sample["rejected"]
         else:
             raise KeyError("Dataset sample lacks recognised preference fields.")
+        
+        # Convert to strings if they are lists (e.g., chat message format)
+        def to_string(field):
+            if isinstance(field, list):
+                # Handle list of dicts (chat messages)
+                if field and isinstance(field[0], dict):
+                    return "\n".join([msg.get("content", "") for msg in field])
+                # Handle simple list
+                return " ".join(str(item) for item in field)
+            return str(field) if field else ""
+        
+        prompt = to_string(prompt)
+        pos = to_string(pos)
+        neg = to_string(neg)
+        
         return {"prompt": prompt, "pos": pos, "neg": neg}
 
 
